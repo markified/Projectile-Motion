@@ -61,14 +61,18 @@ def draw_projectile_shadow(screen, x, y, radius):
     pygame.draw.ellipse(shadow, SHADOW_COLOR, (0, 0, radius*4, radius))
     screen.blit(shadow, (int(x-radius*2), int(y+radius*1.5)))
 
-def draw_fancy_trail(screen, points):
+def draw_fancy_trail(screen, points, color=(255,0,0)):
     if len(points) < 2:
         return
+    # draw main polyline
+    if len(points) > 2:
+        pygame.draw.lines(screen, color, False, points, 2)
+    # draw fading dots for the recent points
     for i in range(1, min(len(points), 20)):
         alpha = max(40, 180 - i*8)
-        color = (255, 0, 0, alpha)
+        r, g, b = color
         trail = pygame.Surface((8, 8), pygame.SRCALPHA)
-        pygame.draw.circle(trail, color, (4, 4), 4)
+        pygame.draw.circle(trail, (r, g, b, alpha), (4, 4), 4)
         screen.blit(trail, (points[-i][0]-4, points[-i][1]-4))
 
 def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
@@ -134,7 +138,10 @@ landed = False
 total_time = 0
 total_distance = 0
 max_height = 0
-trace_points = []
+
+# Traces
+all_traces = []        
+current_trace = None     
 
 recent_records = []  # Store tuples: (speed, angle, total_time, total_distance, max_height)
 MAX_RECORDS = 5
@@ -157,7 +164,10 @@ while running:
                 total_time = 0
                 total_distance = 0
                 max_height = 0
-                # trace_points = []  # Do NOT reset trace on new launch
+                # start a new trace for this launch and keep previous traces
+                trace_color = (random.randint(120,255), random.randint(60,220), random.randint(40,200))
+                all_traces.append({'points': [], 'color': trace_color})
+                current_trace = all_traces[-1]['points']
             except ValueError:
                 print("Invalid input")
         if reset_button.handle_event(event):
@@ -166,7 +176,8 @@ while running:
             total_time = 0
             total_distance = 0
             max_height = 0
-            trace_points = []
+            all_traces = []      # clear stored traces on reset
+            current_trace = None
             recent_records = []
 
     if projectile and not landed:
@@ -179,7 +190,11 @@ while running:
     
         screen_x = x + 50
         screen_y = HEIGHT - 50 - y
-        trace_points.append((int(screen_x), int(screen_y)))
+        # append to the active trace (if any)
+        if current_trace is not None:
+            current_trace.append((int(screen_x), int(screen_y)))
+        # legacy local trace_points removed
+
         if y == 0 and prev_y > 0:
             landed = True
             total_time = projectile.t
@@ -233,8 +248,11 @@ while running:
         draw_projectile_shadow(screen, screen_x, HEIGHT - 50, BALL_RADIUS)
 
 
-    if len(trace_points) > 1:
-        draw_fancy_trail(screen, trace_points)
+    # draw all stored traces (persistent)
+    for trace in all_traces:
+        pts = trace['points']
+        if len(pts) > 0:
+            draw_fancy_trail(screen, pts, trace.get('color', (0,0,255)))
 
    
     speed_label_color = ACTIVE_COLOR if speed_input.active else BLACK
@@ -268,11 +286,11 @@ while running:
         screen.blit(dist_label, (100, 120))
         screen.blit(maxh_label, (100, 150))
 
-    # Show recent record launches (left side)
+    # Show recent record launches 
     records_to_show = recent_records[:MAX_RECORDS]
     if records_to_show:
-        start_x = 500  # left column
-        start_y = 150  # vertical start (adjust if needed)
+        start_x = 500  
+        start_y = 150  
         record_title = font.render("Recent Launches:", True, BLACK)
         screen.blit(record_title, (start_x, start_y - 40))
         for i, rec in enumerate(records_to_show):
