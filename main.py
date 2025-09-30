@@ -1,7 +1,7 @@
 import pygame
 from physics import Projectile
 from ui import InputBox, Button
-
+import random
 
 FPS = 60
 
@@ -17,6 +17,15 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 ACTIVE_COLOR = (30, 144, 255)
 
+# Fancy colors for background, sun, clouds, grass, and shadow
+SKY_TOP = (120, 180, 255)
+SKY_BOTTOM = (220, 240, 255)
+GRASS_TOP = (80, 200, 120)
+GRASS_BOTTOM = (30, 120, 60)
+SUN_COLOR = (255, 255, 120)
+CLOUD_COLOR = (255, 255, 255, 180)
+SHADOW_COLOR = (60, 60, 60, 90)
+
 # CANNONBALL SIZE
 BALL_RADIUS = 10
 
@@ -25,6 +34,42 @@ CANNON_BODY = (70, 70, 80)
 CANNON_HIGHLIGHT = (140, 140, 150)
 WHEEL_COLOR = (30, 30, 30)
 FLASH_COLOR = (255, 200, 50)
+
+def draw_gradient_rect(surf, rect, top_color, bottom_color):
+    x, y, w, h = rect
+    for i in range(h):
+        ratio = i / h
+        r = int(top_color[0] * (1 - ratio) + bottom_color[0] * ratio)
+        g = int(top_color[1] * (1 - ratio) + bottom_color[1] * ratio)
+        b = int(top_color[2] * (1 - ratio) + bottom_color[2] * ratio)
+        pygame.draw.line(surf, (r, g, b), (x, y + i), (x + w, y + i))
+
+def draw_sky_and_ground(screen, WIDTH, HEIGHT):
+    draw_gradient_rect(screen, (0, 0, WIDTH, HEIGHT-50), SKY_TOP, SKY_BOTTOM)
+    pygame.draw.circle(screen, SUN_COLOR, (WIDTH-120, 120), 60)
+    for cx, cy, cr in [(200, 100, 40), (300, 70, 30), (600, 120, 50), (900, 80, 35)]:
+        cloud = pygame.Surface((cr*3, cr*2), pygame.SRCALPHA)
+        pygame.draw.ellipse(cloud, CLOUD_COLOR, (0, cr//2, cr*3, cr))
+        pygame.draw.ellipse(cloud, CLOUD_COLOR, (cr, 0, cr*2, cr))
+        screen.blit(cloud, (cx, cy))
+    draw_gradient_rect(screen, (0, HEIGHT-50, WIDTH, 50), GRASS_TOP, GRASS_BOTTOM)
+    for gx in range(0, WIDTH, 18):
+        pygame.draw.line(screen, (60, 180, 80), (gx, HEIGHT-10), (gx+2, HEIGHT-50+random.randint(0,10)), 2)
+
+def draw_projectile_shadow(screen, x, y, radius):
+    shadow = pygame.Surface((radius*4, radius*2), pygame.SRCALPHA)
+    pygame.draw.ellipse(shadow, SHADOW_COLOR, (0, 0, radius*4, radius))
+    screen.blit(shadow, (int(x-radius*2), int(y+radius*1.5)))
+
+def draw_fancy_trail(screen, points):
+    if len(points) < 2:
+        return
+    for i in range(1, min(len(points), 20)):
+        alpha = max(40, 180 - i*8)
+        color = (255, 0, 0, alpha)
+        trail = pygame.Surface((8, 8), pygame.SRCALPHA)
+        pygame.draw.circle(trail, color, (4, 4), 4)
+        screen.blit(trail, (points[-i][0]-4, points[-i][1]-4))
 
 def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
     
@@ -156,6 +201,7 @@ while running:
                 pass  # Ignore if input boxes are empty or invalid
 
     screen.fill(WHITE)
+    draw_sky_and_ground(screen, WIDTH, HEIGHT)
     pygame.draw.line(screen, BLACK, (0, HEIGHT-50), (WIDTH, HEIGHT-50), 2)
 
     
@@ -184,10 +230,11 @@ while running:
         screen_x = x + 50
         screen_y = HEIGHT - 50 - y
         pygame.draw.circle(screen, (255, 0, 0), (int(screen_x), int(screen_y)), BALL_RADIUS)
+        draw_projectile_shadow(screen, screen_x, HEIGHT - 50, BALL_RADIUS)
 
 
     if len(trace_points) > 1:
-        pygame.draw.lines(screen, (255, 0, 0), False, trace_points, 2)
+        draw_fancy_trail(screen, trace_points)
 
    
     speed_label_color = ACTIVE_COLOR if speed_input.active else BLACK
