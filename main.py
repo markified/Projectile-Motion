@@ -3,7 +3,7 @@ from physics import Projectile
 from ui import InputBox, Button
 import random
 
-FPS = 60
+FPS = 120
 
 pygame.init()
 screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -35,6 +35,7 @@ CANNON_HIGHLIGHT = (140, 140, 150)
 WHEEL_COLOR = (30, 30, 30)
 FLASH_COLOR = (255, 200, 50)
 
+
 def draw_gradient_rect(surf, rect, top_color, bottom_color):
     x, y, w, h = rect
     for i in range(h):
@@ -64,10 +65,10 @@ def draw_projectile_shadow(screen, x, y, radius):
 def draw_fancy_trail(screen, points, color=(255,0,0)):
     if len(points) < 2:
         return
-    # draw main polyline
+    
     if len(points) > 2:
         pygame.draw.lines(screen, color, False, points, 2)
-    # draw fading dots for the recent points
+    
     for i in range(1, min(len(points), 20)):
         alpha = max(40, 180 - i*8)
         r, g, b = color
@@ -75,6 +76,17 @@ def draw_fancy_trail(screen, points, color=(255,0,0)):
         pygame.draw.circle(trail, (r, g, b, alpha), (4, 4), 4)
         screen.blit(trail, (points[-i][0]-4, points[-i][1]-4))
 
+def draw_max_marker(screen, points, height_m=None, label_color=(20,20,20)):
+    if not points:
+        return
+    mx, my = min(points, key=lambda p: p[1])
+    # if explicit height in meters provided, use it; otherwise compute from pixels
+    if height_m is None:
+        height_m = (HEIGHT - 50 - my) / 10.0
+    MARKER_COLOR = (255, 215, 0)  # gold
+    pygame.draw.circle(screen, MARKER_COLOR, (mx, my), 8)
+    pygame.draw.circle(screen, (0, 0, 0), (mx, my), 8, 2)
+    
 def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
     
     dir_vec = pygame.math.Vector2(1, 0).rotate(-angle_deg)
@@ -141,7 +153,7 @@ max_height = 0
 
 # Traces
 all_traces = []        
-current_trace = None     
+current_trace = None    
 
 recent_records = []  # Store tuples: (speed, angle, total_time, total_distance, max_height)
 MAX_RECORDS = 5
@@ -166,8 +178,9 @@ while running:
                 max_height = 0
                 # start a new trace for this launch and keep previous traces
                 trace_color = (random.randint(120,255), random.randint(60,220), random.randint(40,200))
-                all_traces.append({'points': [], 'color': trace_color})
-                current_trace = all_traces[-1]['points']
+                trace = {'points': [], 'color': trace_color, 'max_height': 0.0}
+                all_traces.append(trace)
+                current_trace = trace
             except ValueError:
                 print("Invalid input")
         if reset_button.handle_event(event):
@@ -176,7 +189,7 @@ while running:
             total_time = 0
             total_distance = 0
             max_height = 0
-            all_traces = []      # clear stored traces on reset
+            all_traces = []      
             current_trace = None
             recent_records = []
 
@@ -184,31 +197,37 @@ while running:
         prev_y = projectile.position[1]
         projectile.update(dt)
         x, y = projectile.position
-        
+
+        # Track max height in meters for this flight and store in current_trace
         if y / 10 > max_height:
             max_height = y / 10
-    
+        if current_trace is not None:
+            current_trace['max_height'] = max(current_trace.get('max_height', 0.0), max_height)
+
         screen_x = x + 50
         screen_y = HEIGHT - 50 - y
-        # append to the active trace (if any)
+
         if current_trace is not None:
-            current_trace.append((int(screen_x), int(screen_y)))
-        # legacy local trace_points removed
+            current_trace['points'].append((int(screen_x), int(screen_y)))
 
         if y == 0 and prev_y > 0:
             landed = True
             total_time = projectile.t
-            total_distance = x / 10  
-            # Add to recent records, but only if inputs are valid numbers
+            total_distance = x / 10
+            
+            if current_trace is not None:
+                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), max_height)
+            
             try:
                 v0_val = float(speed_input.text)
                 angle_val = float(angle_input.text)
+                trace_h = current_trace['max_height'] if current_trace is not None else max_height
                 recent_records.insert(0, (
                     v0_val,
                     angle_val,
                     total_time,
                     total_distance,
-                    max_height
+                    trace_h
                 ))
                 if len(recent_records) > MAX_RECORDS:
                     recent_records.pop()
@@ -254,6 +273,18 @@ while running:
         if len(pts) > 0:
             draw_fancy_trail(screen, pts, trace.get('color', (0,0,255)))
 
+    # highlight max height of current trace (if any), else last trace
+    target_trace = None
+    if current_trace and current_trace.get('points'):
+        target_trace = current_trace
+    else:
+        for tr in reversed(all_traces):
+            if tr.get('points'):
+                target_trace = tr
+                break
+    if target_trace:
+        draw_max_marker(screen, target_trace['points'], height_m=target_trace.get('max_height'))
+
    
     speed_label_color = ACTIVE_COLOR if speed_input.active else BLACK
     angle_label_color = ACTIVE_COLOR if angle_input.active else BLACK
@@ -289,16 +320,35 @@ while running:
     # Show recent record launches 
     records_to_show = recent_records[:MAX_RECORDS]
     if records_to_show:
-        start_x = 500  
-        start_y = 150  
+        start_x = 500
+        start_y = 150
         record_title = font.render("Recent Launches:", True, BLACK)
         screen.blit(record_title, (start_x, start_y - 40))
+
+        line_h = font.get_linesize()
+        spacing_between_records = 10  # blank space between records
+
+        y = start_y
         for i, rec in enumerate(records_to_show):
-            rec_text = font.render(
-                f"{i+1}. v0={rec[0]:.1f} m/s, θ={rec[1]:.1f}°, t={rec[2]:.2f}s, R={rec[3]:.2f}m, H={rec[4]:.2f}m",
-                True, BLACK
-            )
-            screen.blit(rec_text, (start_x, start_y + i * 30))
+            # index on its own line
+            idx_text = font.render(f"{i+1}.", True, BLACK)
+            screen.blit(idx_text, (start_x, y))
+
+            # details rendered on separate lines, indented
+            info_x = start_x + 30
+            labels = [
+                f"Vo = {rec[0]:.1f} m/s",
+                f"θ  = {rec[1]:.1f}°",
+                f"T  = {rec[2]:.2f} s",
+                f"R  = {rec[3]:.2f} m",
+                f"H  = {rec[4]:.2f} m",
+            ]
+            for j, lbl in enumerate(labels):
+                txt = font.render(lbl, True, BLACK)
+                screen.blit(txt, (info_x, y + j * line_h))
+
+            # advance y to next record (adds an extra blank line)
+            y += len(labels) * line_h + spacing_between_records
 
     pygame.display.flip()
 
