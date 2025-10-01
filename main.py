@@ -35,7 +35,7 @@ CANNON_HIGHLIGHT = (140, 140, 150)
 WHEEL_COLOR = (30, 30, 30)
 FLASH_COLOR = (255, 200, 50)
 
-
+# BACKGROUND
 def draw_gradient_rect(surf, rect, top_color, bottom_color):
     x, y, w, h = rect
     for i in range(h):
@@ -157,6 +157,15 @@ current_trace = None
 
 recent_records = []  # Store tuples: (speed, angle, total_time, total_distance, max_height)
 MAX_RECORDS = 5
+# --- Add target variables ---
+target_x = None  # set after screen size known
+target_y = None
+TARGET_RADIUS = 25
+target_hit = False
+
+# initialize target position after WIDTH, HEIGHT are set
+target_x = WIDTH - 200
+target_y = HEIGHT - 50
 
 running = True
 while running:
@@ -166,6 +175,17 @@ while running:
             running = False
         speed_input.handle_event(event)
         angle_input.handle_event(event)
+         # allow placing target with left click if not clicking UI
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            ui_clicked = (speed_input.rect.collidepoint(event.pos)
+                          or angle_input.rect.collidepoint(event.pos)
+                          or launch_button.rect.collidepoint(event.pos)
+                          or reset_button.rect.collidepoint(event.pos))
+            if not ui_clicked:
+                target_x = mx
+                target_y = HEIGHT - 50
+                target_hit = False
         if launch_button.handle_event(event):
             try:
                 v0 = float(speed_input.text)
@@ -192,6 +212,7 @@ while running:
             all_traces = []      
             current_trace = None
             recent_records = []
+            target_hit = False
 
     if projectile and not landed:
         prev_y = projectile.position[1]
@@ -215,6 +236,14 @@ while running:
             total_time = projectile.t
             total_distance = x / 10
             
+            # check hit against target distance (convert screen x to meters)
+            if target_x is not None:
+                target_distance_m = (target_x - 50) / 10.0
+                if abs(total_distance - target_distance_m) <= (TARGET_RADIUS / 10.0):
+                    target_hit = True
+                else:
+                    target_hit = False
+            # ...existing code adding recent_records ...
             if current_trace is not None:
                 current_trace['max_height'] = max(current_trace.get('max_height', 0.0), max_height)
             
@@ -349,6 +378,26 @@ while running:
 
             # advance y to next record (adds an extra blank line)
             y += len(labels) * line_h + spacing_between_records
+            # Draw target dummy (bullseye + pole)
+    if target_x is None:
+        target_x = WIDTH - 200
+    if target_y is None:
+        target_y = HEIGHT - 50
+    # concentric rings
+    pygame.draw.circle(screen, (150, 0, 0), (int(target_x), int(target_y)), TARGET_RADIUS)
+    pygame.draw.circle(screen, WHITE, (int(target_x), int(target_y)), int(TARGET_RADIUS * 0.66))
+    pygame.draw.circle(screen, (0, 0, 200), (int(target_x), int(target_y)), int(TARGET_RADIUS * 0.33))
+    # pole / stand
+    pygame.draw.rect(screen, (100, 60, 20), (int(target_x) - 3, target_y - 2, 6, 40))
+    # target distance label
+    target_dist_label = font.render(f"Target: {(target_x - 50) / 10:.2f} m", True, BLACK)
+    screen.blit(target_dist_label, (int(target_x) - TARGET_RADIUS, target_y - 110))
+
+    # show HIT/MISS if landed
+    if landed:
+        hit_text = font.render("HIT!" if target_hit else "MISS", True, (0,150,0) if target_hit else (180,30,30))
+        screen.blit(hit_text, (int(target_x) - TARGET_RADIUS, target_y - 80))
+
 
     pygame.display.flip()
 
