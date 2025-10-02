@@ -139,8 +139,9 @@ def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
 # UI elements
 speed_input = InputBox(100, 40, 140, 32, text='20')
 angle_input = InputBox(300, 40, 140, 32, text='45')
-launch_button = Button(500, 40, 100, 32, text='Launch')  
-reset_button = Button(650, 40, 100, 32, text='Reset')
+height_input = InputBox(500, 40, 140, 32, text='0')  
+launch_button = Button(660, 40, 100, 32, text='Launch')  
+reset_button = Button(780, 40, 100, 32, text='Reset')
 
 # Add font for labels
 font = pygame.font.Font(None, 28)
@@ -157,13 +158,13 @@ current_trace = None
 
 recent_records = []  # Store tuples: (speed, angle, total_time, total_distance, max_height)
 MAX_RECORDS = 5
-# --- Add target variables ---
-target_x = None  # set after screen size known
+# Add target variables 
+target_x = None  
 target_y = None
 TARGET_RADIUS = 25
 target_hit = False
 
-# initialize target position after WIDTH, HEIGHT are set
+# initialize target position 
 target_x = WIDTH - 200
 target_y = HEIGHT - 50
 
@@ -175,11 +176,13 @@ while running:
             running = False
         speed_input.handle_event(event)
         angle_input.handle_event(event)
-         # allow placing target with left click if not clicking UI
+        height_input.handle_event(event) 
+        
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
             ui_clicked = (speed_input.rect.collidepoint(event.pos)
                           or angle_input.rect.collidepoint(event.pos)
+                          or height_input.rect.collidepoint(event.pos)   
                           or launch_button.rect.collidepoint(event.pos)
                           or reset_button.rect.collidepoint(event.pos))
             if not ui_clicked:
@@ -190,15 +193,16 @@ while running:
             try:
                 v0 = float(speed_input.text)
                 angle = float(angle_input.text)
-                g = 9.8  
-                projectile = Projectile(v0, angle, g)
+                h0 = float(height_input.text)  
+                g = 9.8
+                projectile = Projectile(v0, angle, g, h0)  
                 landed = False
                 total_time = 0
                 total_distance = 0
                 max_height = 0
                 # start a new trace for this launch and keep previous traces
                 trace_color = (random.randint(120,255), random.randint(60,220), random.randint(40,200))
-                trace = {'points': [], 'color': trace_color, 'max_height': 0.0}
+                trace = {'points': [], 'color': trace_color, 'max_height': projectile.max_height()}
                 all_traces.append(trace)
                 current_trace = trace
             except ValueError:
@@ -217,40 +221,38 @@ while running:
     if projectile and not landed:
         prev_y = projectile.position[1]
         projectile.update(dt)
-        x, y = projectile.position
-
-        # Track max height in meters for this flight and store in current_trace
-        if y / 10 > max_height:
-            max_height = y / 10
+        x_px, y_px = projectile.position
+        # update max height from analytic value for consistency
         if current_trace is not None:
-            current_trace['max_height'] = max(current_trace.get('max_height', 0.0), max_height)
-
-        screen_x = x + 50
-        screen_y = HEIGHT - 50 - y
-
+            current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
+        # append pixel position to the active trace
         if current_trace is not None:
-            current_trace['points'].append((int(screen_x), int(screen_y)))
-
-        if y == 0 and prev_y > 0:
+            current_trace['points'].append((int(x_px + 50), int(HEIGHT - 50 - (y_px))))  # keep same screen mapping
+        # handle landing: use analytic values to finalize results
+        if projectile.landed:
             landed = True
-            total_time = projectile.t
-            total_distance = x / 10
-            
+            total_time = projectile.flight_time()
+            total_distance = projectile.range()
             # check hit against target distance (convert screen x to meters)
             if target_x is not None:
                 target_distance_m = (target_x - 50) / 10.0
-                if abs(total_distance - target_distance_m) <= (TARGET_RADIUS / 10.0):
-                    target_hit = True
-                else:
-                    target_hit = False
-            # ...existing code adding recent_records ...
+                # tolerance includes target radius and ball size (both in meters)
+                tolerance_m = (TARGET_RADIUS + BALL_RADIUS) / 10.0
+                target_hit = abs(total_distance - target_distance_m) <= tolerance_m
+            else:
+                target_hit = False
+            
             if current_trace is not None:
-                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), max_height)
+                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
+
+            
+            trace_h = current_trace['max_height'] if current_trace is not None else projectile.max_height()
+            max_height = trace_h  
+
             
             try:
                 v0_val = float(speed_input.text)
                 angle_val = float(angle_input.text)
-                trace_h = current_trace['max_height'] if current_trace is not None else max_height
                 recent_records.insert(0, (
                     v0_val,
                     angle_val,
@@ -261,33 +263,56 @@ while running:
                 if len(recent_records) > MAX_RECORDS:
                     recent_records.pop()
             except ValueError:
-                pass  # Ignore if input boxes are empty or invalid
+                pass
 
     screen.fill(WHITE)
     draw_sky_and_ground(screen, WIDTH, HEIGHT)
     pygame.draw.line(screen, BLACK, (0, HEIGHT-50), (WIDTH, HEIGHT-50), 2)
 
     
+    # Compute h0 for drawing cannon (fallback to 0)
+    try:
+        h0_draw = float(height_input.text)
+    except Exception:
+        h0_draw = 0.0
+    # draw cannon base at customized height (pixels)
     cannon_base_x = 50
-    cannon_base_y = HEIGHT - 50
+    cannon_base_y = HEIGHT - 50 - int(h0_draw * 10)  # move up by h0 meters * scale
+
+    # base/platform from cannon_base_y down to ground ---
+    # platform dimensions
+    platform_width = 80
+    platform_x = cannon_base_x - platform_width // 2
+    platform_top = cannon_base_y
+    platform_bottom = HEIGHT - 50
+    platform_height = max(4, platform_bottom - platform_top)
+    platform_rect = pygame.Rect(platform_x, platform_top, platform_width, platform_height)
+    # platform colors
+    PLATFORM_COLOR = (120, 80, 40)       # brown
+    PLATFORM_HIGHLIGHT = (160, 110, 60)  # lighter top
+    pygame.draw.rect(screen, PLATFORM_COLOR, platform_rect)
+  
+    highlight_rect = pygame.Rect(platform_x, platform_top, platform_width, 6)
+    pygame.draw.rect(screen, PLATFORM_HIGHLIGHT, highlight_rect)
     
-    # Ensure angle_deg is defined (fallback to 45 if input invalid)
+    slat_color = (100, 60, 30)
+    for sx in range(platform_x + 6, platform_x + platform_width - 6, 10):
+        pygame.draw.line(screen, slat_color, (sx, platform_top + 8), (sx, platform_bottom - 6), 2)
+
+    # --- Ensure angle_deg is defined (fallback to 45 if input invalid) ---
     try:
         angle_deg = float(angle_input.text)
     except Exception:
         angle_deg = 45
 
-    # Determine if a recent launch just occurred (show flash briefly)
     fired = False
     if projectile:
         try:
             fired = projectile.t is not None and projectile.t < 0.12
         except Exception:
             fired = False
-
     draw_fancy_cannon(screen, cannon_base_x, cannon_base_y, angle_deg, fired=fired)
 
-    
     if projectile:
         x, y = projectile.position
         screen_x = x + 50
@@ -333,9 +358,23 @@ while running:
     launch_button.draw(screen)
     reset_button.draw(screen)
 
-    
+    # restore original color state
     speed_input.color = orig_speed_color
     angle_input.color = orig_angle_color
+
+    # Draw UI labels including height label and active color change
+    height_label_color = ACTIVE_COLOR if height_input.active else BLACK
+    height_label = font.render("Height (m):", True, height_label_color)
+    screen.blit(height_label, (500, 20))
+
+    # ensure the height input is drawn with active highlight (existing pattern)
+    orig_height_color = height_input.color
+    height_input.color = ACTIVE_COLOR if height_input.active else BLACK
+
+    height_input.draw(screen)
+
+    # restore original color state
+    height_input.color = orig_height_color
 
    
     if landed:
@@ -383,13 +422,18 @@ while running:
         target_x = WIDTH - 200
     if target_y is None:
         target_y = HEIGHT - 50
-    # concentric rings
-    pygame.draw.circle(screen, (150, 0, 0), (int(target_x), int(target_y)), TARGET_RADIUS)
-    pygame.draw.circle(screen, WHITE, (int(target_x), int(target_y)), int(TARGET_RADIUS * 0.66))
-    pygame.draw.circle(screen, (0, 0, 200), (int(target_x), int(target_y)), int(TARGET_RADIUS * 0.33))
-    # pole / stand
+
+    # choose colors depending on hit state
+    outer_color = (80, 200, 80) if target_hit else (150, 0, 0)
+    middle_color = (255, 255, 255) if not target_hit else (220, 255, 220)
+    inner_color = (0, 100, 200) if not target_hit else (0, 120, 0)
+
+    pygame.draw.circle(screen, outer_color, (int(target_x), int(target_y)), TARGET_RADIUS)
+    pygame.draw.circle(screen, middle_color, (int(target_x), int(target_y)), int(TARGET_RADIUS * 0.66))
+    pygame.draw.circle(screen, inner_color, (int(target_x), int(target_y)), int(TARGET_RADIUS * 0.33))
+    
     pygame.draw.rect(screen, (100, 60, 20), (int(target_x) - 3, target_y - 2, 6, 40))
-    # target distance label
+   
     target_dist_label = font.render(f"Target: {(target_x - 50) / 10:.2f} m", True, BLACK)
     screen.blit(target_dist_label, (int(target_x) - TARGET_RADIUS, target_y - 110))
 
