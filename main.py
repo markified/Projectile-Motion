@@ -388,8 +388,8 @@ while running:
     # Show recent record launches 
     records_to_show = recent_records[:MAX_RECORDS]
     if records_to_show:
-        start_x = 500
-        start_y = 150
+        start_x = 950
+        start_y = 90
         record_title = font.render("Recent Launches:", True, BLACK)
         screen.blit(record_title, (start_x, start_y - 40))
 
