@@ -140,7 +140,7 @@ def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
 speed_input = InputBox(100, 40, 140, 32, text='20')
 angle_input = InputBox(300, 40, 140, 32, text='45')
 height_input = InputBox(500, 40, 140, 32, text='0')  
-launch_button = Button(660, 40, 100, 32, text='Launch')  
+launch_button = Button(660, 40, 100, 32, text='Launch')
 reset_button = Button(780, 40, 100, 32, text='Reset')
 
 # Add font for labels
@@ -364,8 +364,8 @@ while running:
 
     # Draw UI labels including height label and active color change
     height_label_color = ACTIVE_COLOR if height_input.active else BLACK
-    height_label = font.render("Height (m):", True, height_label_color)
-    screen.blit(height_label, (500, 20))
+    height_label = font.render("Cannon Height (m):", True, height_label_color)
+    screen.blit(height_label, (480, 20))
 
     # ensure the height input is drawn with active highlight (existing pattern)
     orig_height_color = height_input.color
