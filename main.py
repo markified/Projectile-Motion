@@ -1,10 +1,15 @@
+import random
 import pygame
 from physics import Projectile
 from ui import InputBox, Button
-import random
 
+# --- Core settings / constants ------------------------------------------------
 FPS = 120
+SCALE = 10             
+GROUND_OFFSET = 50      
+CANNON_BASE_X = 50      
 
+# --- Pygame initialization ---------------------------------------------------
 pygame.init()
 screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 WIDTH, HEIGHT = screen.get_size()
@@ -12,12 +17,10 @@ pygame.display.set_caption("Projectile Motion Simulator")
 clock = pygame.time.Clock()
 
 
-# Colors
+# Colors (grouped)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 ACTIVE_COLOR = (30, 144, 255)
-
-# Fancy colors for background, sun, clouds, grass, and shadow
 SKY_TOP = (120, 180, 255)
 SKY_BOTTOM = (220, 240, 255)
 GRASS_TOP = (80, 200, 120)
@@ -25,15 +28,14 @@ GRASS_BOTTOM = (30, 120, 60)
 SUN_COLOR = (255, 255, 120)
 CLOUD_COLOR = (255, 255, 255, 180)
 SHADOW_COLOR = (60, 60, 60, 90)
-
-# CANNONBALL SIZE
-BALL_RADIUS = 10
-
-# CANNON
 CANNON_BODY = (70, 70, 80)
 CANNON_HIGHLIGHT = (140, 140, 150)
 WHEEL_COLOR = (30, 30, 30)
 FLASH_COLOR = (255, 200, 50)
+
+# CANNONBALL SIZE
+BALL_RADIUS = 10
+TARGET_RADIUS = 25  # moved up to constants section
 
 # BACKGROUND
 def draw_gradient_rect(surf, rect, top_color, bottom_color):
@@ -46,16 +48,24 @@ def draw_gradient_rect(surf, rect, top_color, bottom_color):
         pygame.draw.line(surf, (r, g, b), (x, y + i), (x + w, y + i))
 
 def draw_sky_and_ground(screen, WIDTH, HEIGHT):
-    draw_gradient_rect(screen, (0, 0, WIDTH, HEIGHT-50), SKY_TOP, SKY_BOTTOM)
+    # replaced magic numbers with constants
+    draw_gradient_rect(screen, (0, 0, WIDTH, HEIGHT - GROUND_OFFSET), SKY_TOP, SKY_BOTTOM)
     pygame.draw.circle(screen, SUN_COLOR, (WIDTH-120, 120), 60)
     for cx, cy, cr in [(200, 100, 40), (300, 70, 30), (600, 120, 50), (900, 80, 35)]:
         cloud = pygame.Surface((cr*3, cr*2), pygame.SRCALPHA)
         pygame.draw.ellipse(cloud, CLOUD_COLOR, (0, cr//2, cr*3, cr))
         pygame.draw.ellipse(cloud, CLOUD_COLOR, (cr, 0, cr*2, cr))
         screen.blit(cloud, (cx, cy))
-    draw_gradient_rect(screen, (0, HEIGHT-50, WIDTH, 50), GRASS_TOP, GRASS_BOTTOM)
+    draw_gradient_rect(screen, (0, HEIGHT - GROUND_OFFSET, WIDTH, GROUND_OFFSET), GRASS_TOP, GRASS_BOTTOM)
     for gx in range(0, WIDTH, 18):
-        pygame.draw.line(screen, (60, 180, 80), (gx, HEIGHT-10), (gx+2, HEIGHT-50+random.randint(0,10)), 2)
+        pygame.draw.line(
+            screen,
+            (60, 180, 80),
+            (gx, HEIGHT - 10),
+            (gx + 2, HEIGHT - GROUND_OFFSET + random.randint(0, 10)),
+            2
+        )
+
 # CANNONBALL
 def draw_projectile_shadow(screen, x, y, radius):
     shadow = pygame.Surface((radius*4, radius*2), pygame.SRCALPHA)
@@ -77,12 +87,12 @@ def draw_fancy_trail(screen, points, color=(255,0,0)):
         screen.blit(trail, (points[-i][0]-4, points[-i][1]-4))
 
 def draw_max_marker(screen, points, height_m=None, label_color=(20,20,20)):
+    # replaced (HEIGHT - 50)/10.0 with constants
     if not points:
         return
     mx, my = min(points, key=lambda p: p[1])
-    # if explicit height in meters provided, use it; otherwise compute from pixels
     if height_m is None:
-        height_m = (HEIGHT - 50 - my) / 10.0
+        height_m = (HEIGHT - GROUND_OFFSET - my) / SCALE
     MARKER_COLOR = (255, 215, 0)  # gold
     pygame.draw.circle(screen, MARKER_COLOR, (mx, my), 8)
     pygame.draw.circle(screen, (0, 0, 0), (mx, my), 8, 2)
@@ -164,9 +174,9 @@ target_y = None
 TARGET_RADIUS = 25
 target_hit = False
 
-# initialize target position 
+# initialize target position (use constants)
 target_x = WIDTH - 200
-target_y = HEIGHT - 50
+target_y = HEIGHT - GROUND_OFFSET
 
 running = True
 while running:
@@ -187,7 +197,7 @@ while running:
                           or reset_button.rect.collidepoint(event.pos))
             if not ui_clicked:
                 target_x = mx
-                target_y = HEIGHT - 50
+                target_y = HEIGHT - GROUND_OFFSET
                 target_hit = False
         if launch_button.handle_event(event):
             try:
@@ -227,7 +237,9 @@ while running:
             current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
         # append pixel position to the active trace
         if current_trace is not None:
-            current_trace['points'].append((int(x_px + 50), int(HEIGHT - 50 - (y_px))))  # keep same screen mapping
+            current_trace['points'].append(
+                (int(x_px + CANNON_BASE_X), int(HEIGHT - GROUND_OFFSET - y_px))
+            )
         # handle landing: use analytic values to finalize results
         if projectile.landed:
             landed = True
@@ -235,9 +247,9 @@ while running:
             total_distance = projectile.range()
             # check hit against target distance (convert screen x to meters)
             if target_x is not None:
-                target_distance_m = (target_x - 50) / 10.0
+                target_distance_m = (target_x - CANNON_BASE_X) / SCALE
                 # tolerance includes target radius and ball size (both in meters)
-                tolerance_m = (TARGET_RADIUS + BALL_RADIUS) / 10.0
+                tolerance_m = (TARGET_RADIUS + BALL_RADIUS) / SCALE
                 target_hit = abs(total_distance - target_distance_m) <= tolerance_m
             else:
                 target_hit = False
@@ -267,7 +279,7 @@ while running:
 
     screen.fill(WHITE)
     draw_sky_and_ground(screen, WIDTH, HEIGHT)
-    pygame.draw.line(screen, BLACK, (0, HEIGHT-50), (WIDTH, HEIGHT-50), 2)
+    pygame.draw.line(screen, BLACK, (0, HEIGHT - GROUND_OFFSET), (WIDTH, HEIGHT - GROUND_OFFSET), 2)
 
     # Compute h0 for drawing cannon (fallback to 0)
     try:
@@ -275,15 +287,15 @@ while running:
     except Exception:
         h0_draw = 0.0
     # draw cannon base at customized height (pixels)
-    cannon_base_x = 50
-    cannon_base_y = HEIGHT - 50 - int(h0_draw * 10)  # move up by h0 meters * scale
+    cannon_base_x = CANNON_BASE_X
+    cannon_base_y = HEIGHT - GROUND_OFFSET - int(h0_draw * SCALE)  # move up by h0 meters * scale
 
     # base/platform from cannon_base_y down to ground ---
     # platform dimensions
     platform_width = 80
     platform_x = cannon_base_x - platform_width // 2
     platform_top = cannon_base_y
-    platform_bottom = HEIGHT - 50
+    platform_bottom = HEIGHT - GROUND_OFFSET
     platform_height = max(4, platform_bottom - platform_top)
     platform_rect = pygame.Rect(platform_x, platform_top, platform_width, platform_height)
     # platform colors
@@ -312,12 +324,13 @@ while running:
             fired = False
     draw_fancy_cannon(screen, cannon_base_x, cannon_base_y, angle_deg, fired=fired)
 
+    # projectile drawing (screen coords)
     if projectile:
         x, y = projectile.position
-        screen_x = x + 50
-        screen_y = HEIGHT - 50 - y
+        screen_x = x + CANNON_BASE_X
+        screen_y = HEIGHT - GROUND_OFFSET - y
         pygame.draw.circle(screen, (255, 0, 0), (int(screen_x), int(screen_y)), BALL_RADIUS)
-        draw_projectile_shadow(screen, screen_x, HEIGHT - 50, BALL_RADIUS)
+        draw_projectile_shadow(screen, screen_x, HEIGHT - GROUND_OFFSET, BALL_RADIUS)
 
 
     # draw all stored traces (persistent)
@@ -420,7 +433,7 @@ while running:
     if target_x is None:
         target_x = WIDTH - 200
     if target_y is None:
-        target_y = HEIGHT - 50
+        target_y = HEIGHT - GROUND_OFFSET
 
     # choose colors depending on hit state
     outer_color = (80, 200, 80) if target_hit else (150, 0, 0)
@@ -433,12 +446,21 @@ while running:
     
     pygame.draw.rect(screen, (100, 60, 20), (int(target_x) - 3, target_y - 2, 6, 40))
    
-    target_dist_label = font.render(f"Target: {(target_x - 50) / 10:.2f} m", True, BLACK)
+    target_dist_label = font.render(
+        f"Target: {(target_x - CANNON_BASE_X) / SCALE:.2f} m",
+        True,
+        BLACK
+    )
+    # adjusted vertical labels with GROUND_OFFSET where applicable
     screen.blit(target_dist_label, (int(target_x) - TARGET_RADIUS, target_y - 110))
 
     # show HIT/MISS if landed
     if landed:
-        hit_text = font.render("HIT!" if target_hit else "MISS", True, (0,150,0) if target_hit else (180,30,30))
+        hit_text = font.render(
+            "HIT!" if target_hit else "MISS",
+            True,
+            (0,150,0) if target_hit else (180,30,30)
+        )
         screen.blit(hit_text, (int(target_x) - TARGET_RADIUS, target_y - 80))
 
 
