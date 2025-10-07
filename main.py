@@ -32,6 +32,10 @@ CANNON_BODY = (70, 70, 80)
 CANNON_HIGHLIGHT = (140, 140, 150)
 WHEEL_COLOR = (30, 30, 30)
 FLASH_COLOR = (255, 200, 50)
+LAUNCH_BTN_BG = (200, 30, 30)
+LAUNCH_BTN_TEXT = (255, 255, 255)
+RESET_BTN_BG = (0, 0, 0)
+RESET_BTN_TEXT = (255, 255, 255)
 
 # CANNONBALL SIZE
 BALL_RADIUS = 10
@@ -150,11 +154,17 @@ def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
 # UI elements
 speed_input = InputBox(100, 40, 140, 32, text='20')
 angle_input = InputBox(300, 40, 140, 32, text='45')
-height_input = InputBox(500, 40, 140, 32, text='0')  
+height_input = InputBox(500, 40, 140, 32, text='0')
 launch_button = Button(660, 40, 100, 32, text='Launch')
 reset_button = Button(780, 40, 100, 32, text='Reset')
 
 font = pygame.font.Font(None, 28)
+
+def draw_custom_button(surface, btn, bg_color, text_color): 
+    pygame.draw.rect(surface, bg_color, btn.rect, border_radius=6)
+    pygame.draw.rect(surface, (255, 255, 255), btn.rect, 2, border_radius=6)
+    label = font.render(btn.text, True, text_color)
+    surface.blit(label, label.get_rect(center=btn.rect.center))
 
 projectile = None
 landed = False
@@ -367,8 +377,10 @@ while running:
 
     speed_input.draw(screen)
     angle_input.draw(screen)
-    launch_button.draw(screen)
-    reset_button.draw(screen)
+    # launch_button.draw(screen)
+    # reset_button.draw(screen)
+    draw_custom_button(screen, launch_button, LAUNCH_BTN_BG, LAUNCH_BTN_TEXT)
+    draw_custom_button(screen, reset_button, RESET_BTN_BG, RESET_BTN_TEXT)
 
     # restore original color state
     speed_input.color = orig_speed_color
@@ -429,7 +441,7 @@ while running:
 
             # advance y to next record (adds an extra blank line)
             y += len(labels) * line_h + spacing_between_records
-            # Draw target dummy (bullseye + pole)
+# Draw target dummy (bullseye + pole)
     if target_x is None:
         target_x = WIDTH - 200
     if target_y is None:
