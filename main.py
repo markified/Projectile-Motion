@@ -56,7 +56,7 @@ def draw_sky_and_ground(screen, WIDTH, HEIGHT):
     draw_gradient_rect(screen, (0, HEIGHT-50, WIDTH, 50), GRASS_TOP, GRASS_BOTTOM)
     for gx in range(0, WIDTH, 18):
         pygame.draw.line(screen, (60, 180, 80), (gx, HEIGHT-10), (gx+2, HEIGHT-50+random.randint(0,10)), 2)
-
+# CANNONBALL
 def draw_projectile_shadow(screen, x, y, radius):
     shadow = pygame.Surface((radius*4, radius*2), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, SHADOW_COLOR, (0, 0, radius*4, radius))
@@ -86,7 +86,8 @@ def draw_max_marker(screen, points, height_m=None, label_color=(20,20,20)):
     MARKER_COLOR = (255, 215, 0)  # gold
     pygame.draw.circle(screen, MARKER_COLOR, (mx, my), 8)
     pygame.draw.circle(screen, (0, 0, 0), (mx, my), 8, 2)
-    
+
+# CANNON
 def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
     
     dir_vec = pygame.math.Vector2(1, 0).rotate(-angle_deg)
@@ -143,7 +144,6 @@ height_input = InputBox(500, 40, 140, 32, text='0')
 launch_button = Button(660, 40, 100, 32, text='Launch')
 reset_button = Button(780, 40, 100, 32, text='Reset')
 
-# Add font for labels
 font = pygame.font.Font(None, 28)
 
 projectile = None
@@ -156,7 +156,7 @@ max_height = 0
 all_traces = []        
 current_trace = None    
 
-recent_records = []  # Store tuples: (speed, angle, total_time, total_distance, max_height)
+recent_records = []  
 MAX_RECORDS = 5
 # Add target variables 
 target_x = None  
@@ -269,7 +269,6 @@ while running:
     draw_sky_and_ground(screen, WIDTH, HEIGHT)
     pygame.draw.line(screen, BLACK, (0, HEIGHT-50), (WIDTH, HEIGHT-50), 2)
 
-    
     # Compute h0 for drawing cannon (fallback to 0)
     try:
         h0_draw = float(height_input.text)
