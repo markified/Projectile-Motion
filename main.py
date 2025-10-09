@@ -4,11 +4,14 @@ from physics import Projectile
 from ui import InputBox, Button
 import math  # added for any future math use
 
-# --- Core settings / constants ------------------------------------------------
+# Core settings
 FPS = 120
-SCALE = 10             
-GROUND_OFFSET = 50      
-CANNON_BASE_X = 50      
+SCALE = 10
+GROUND_OFFSET = 50
+CANNON_BASE_X = 50
+# Fade animation timings
+FADE_OUT_DURATION = 1 
+FADE_IN_DURATION = 2  
 
 # --- Pygame initialization ---------------------------------------------------
 pygame.init()
@@ -18,7 +21,7 @@ pygame.display.set_caption("Projectile Motion Simulator")
 clock = pygame.time.Clock()
 
 
-# Colors (grouped)
+# Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 ACTIVE_COLOR = (30, 144, 255)
@@ -37,17 +40,20 @@ LAUNCH_BTN_BG = (200, 30, 30)
 LAUNCH_BTN_TEXT = (255, 255, 255)
 RESET_BTN_BG = (0, 0, 0)
 RESET_BTN_TEXT = (255, 255, 255)
+# NEW: close button colors
+CLOSE_BTN_BG = (140, 20, 20)
+CLOSE_BTN_TEXT = (255, 255, 255)
 
 # Fancy feature colors
 PREDICT_COLOR = (255, 140, 0)
 HUD_BG = (0, 0, 0, 120)
 PARTICLE_BASE = (255, 230, 120)
 
-# CANNONBALL SIZE
+# Cannonball size
 BALL_RADIUS = 10
-TARGET_RADIUS = 25  # moved up to constants section
+TARGET_RADIUS = 25
 
-# BACKGROUND
+# Background drawing
 def draw_gradient_rect(surf, rect, top_color, bottom_color):
     x, y, w, h = rect
     for i in range(h):
@@ -58,6 +64,7 @@ def draw_gradient_rect(surf, rect, top_color, bottom_color):
         pygame.draw.line(surf, (r, g, b), (x, y + i), (x + w, y + i))
 
 def draw_sky_and_ground(screen, WIDTH, HEIGHT):
+    # draw sky and sun, and ground band
     draw_gradient_rect(screen, (0, 0, WIDTH, HEIGHT - GROUND_OFFSET), SKY_TOP, SKY_BOTTOM)
     pygame.draw.circle(screen, SUN_COLOR, (WIDTH-120, 120), 60)
     # clouds now dynamic (removed static blits here)
@@ -71,12 +78,13 @@ def draw_sky_and_ground(screen, WIDTH, HEIGHT):
             2
         )
 
-# CANNONBALL
+# Shadow for projectile
 def draw_projectile_shadow(screen, x, y, radius):
     shadow = pygame.Surface((radius*4, radius*2), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, SHADOW_COLOR, (0, 0, radius*4, radius))
     screen.blit(shadow, (int(x-radius*2), int(y+radius*1.5)))
 
+# Trail drawing
 def draw_fancy_trail(screen, points, color=(255,0,0)):
     if len(points) < 2:
         return
@@ -91,8 +99,9 @@ def draw_fancy_trail(screen, points, color=(255,0,0)):
         pygame.draw.circle(trail, (r, g, b, alpha), (4, 4), 4)
         screen.blit(trail, (points[-i][0]-4, points[-i][1]-4))
 
+# Marker for max height
 def draw_max_marker(screen, points, height_m=None, label_color=(20,20,20)):
-    # replaced (HEIGHT - 50)/10.0 with constants
+    # draw marker at highest point
     if not points:
         return
     mx, my = min(points, key=lambda p: p[1])
@@ -102,9 +111,9 @@ def draw_max_marker(screen, points, height_m=None, label_color=(20,20,20)):
     pygame.draw.circle(screen, MARKER_COLOR, (mx, my), 8)
     pygame.draw.circle(screen, (0, 0, 0), (mx, my), 8, 2)
 
-# CANNON
+# Cannon drawing
 def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
-    
+    # draw cannon barrel, base and wheels
     dir_vec = pygame.math.Vector2(1, 0).rotate(-angle_deg)
     perp = dir_vec.rotate(90)
     barrel_length = 70
@@ -152,17 +161,29 @@ def draw_fancy_cannon(screen, base_x, base_y, angle_deg, fired=False):
             screen.blit(surf, pos)
 
 
-# UI elements
+# UI elements (inputs and buttons)
 speed_input = InputBox(100, 40, 140, 32, text='20')
 angle_input = InputBox(300, 40, 140, 32, text='45')
 height_input = InputBox(500, 40, 140, 32, text='0')
 launch_button = Button(660, 40, 100, 32, text='Launch')
 reset_button = Button(780, 40, 100, 32, text='Reset')
+# NEW: close button (top-right)
+close_button = Button(WIDTH - 70, 12, 56, 36, text='X')
 
 font = pygame.font.Font(None, 28)
 
+# Title font and Start button for the start screen
+title_font = pygame.font.Font(None, 96)
+start_button = Button(WIDTH // 2 - 120, HEIGHT // 2 + 40, 240, 60, text='Start')
+on_start_screen = True
+# Fade state
+fading = False
+fade_phase = None  # 'out' or 'in'
+fade_start_ms = 0
+
 # Added: button drawing helper (was referenced later but undefined)
 def draw_custom_button(surface, btn, bg_color, text_color):
+    # draw gradient button with border and centered text
     hover = btn.rect.collidepoint(pygame.mouse.get_pos())
     base = pygame.Color(*bg_color)
     shade = 1.15 if hover else 0.65
@@ -184,6 +205,13 @@ def draw_custom_button(surface, btn, bg_color, text_color):
     label = font.render(btn.text, True, text_color)
     surface.blit(label, label.get_rect(center=btn.rect.center))
 
+# Helper: fullscreen fade overlay
+def apply_fade_overlay(surface, alpha: int):
+    if alpha <= 0:
+        return
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, int(alpha)))
+    surface.blit(overlay, (0, 0))
 
 clouds = [
     {
@@ -257,8 +285,12 @@ while running:
             running = False
         speed_input.handle_event(event)
         angle_input.handle_event(event)
-        height_input.handle_event(event) 
-        
+        height_input.handle_event(event)
+
+        # NEW: close button handling
+        if close_button.handle_event(event):
+            running = False
+
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
             ui_clicked = (speed_input.rect.collidepoint(event.pos)
@@ -302,6 +334,57 @@ while running:
             current_trace = None
             recent_records = []
             target_hit = False
+
+        # Start screen: handle Start button click -> begin fade out
+        if on_start_screen and start_button.handle_event(event):
+            fading = True
+            fade_phase = 'out'
+            fade_start_ms = pygame.time.get_ticks()
+
+    # Start screen rendering (skip simulation until started)
+    if on_start_screen:
+        # update clouds for animated background
+        for c in clouds:
+            c['x'] += c['speed'] * dt
+            if c['x'] - c['r']*3 > WIDTH:
+                c['x'] = -c['r']*3
+                c['y'] = random.randint(40, 180)
+                c['speed'] = random.uniform(10, 35)
+
+        screen.fill(WHITE)
+        draw_sky_and_ground(screen, WIDTH, HEIGHT)
+
+        # draw dynamic clouds
+        for c in clouds:
+            cloud = pygame.Surface((c['r']*3, c['r']*2), pygame.SRCALPHA)
+            pygame.draw.ellipse(cloud, CLOUD_COLOR, (0, c['r']//2, c['r']*3, c['r']))
+            pygame.draw.ellipse(cloud, CLOUD_COLOR, (c['r'], 0, c['r']*2, c['r']))
+            screen.blit(cloud, (int(c['x']), int(c['y'])))
+
+        # title
+        title_text = title_font.render("Projectile Motion Simulator", True, ACTIVE_COLOR)
+        screen.blit(title_text, title_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40)))
+
+        # Start button (same theme using custom drawer)
+        draw_custom_button(screen, start_button, LAUNCH_BTN_BG, LAUNCH_BTN_TEXT)
+
+        # NEW: draw close button on start screen
+        draw_custom_button(screen, close_button, CLOSE_BTN_BG, CLOSE_BTN_TEXT)
+
+        # Fade-out overlay while transitioning to game
+        if fading and fade_phase == 'out':
+            now = pygame.time.get_ticks()
+            t = (now - fade_start_ms) / (FADE_OUT_DURATION * 1000.0)
+            t = max(0.0, min(1.0, t))
+            apply_fade_overlay(screen, int(255 * t))
+            if t >= 1.0:
+                # switch to game and start fade-in
+                on_start_screen = False
+                fade_phase = 'in'
+                fade_start_ms = now
+
+        pygame.display.flip()
+        continue
 
     if projectile and not landed:
         prev_y = projectile.position[1]
@@ -372,12 +455,11 @@ while running:
         pygame.draw.ellipse(cloud, CLOUD_COLOR, (c['r'], 0, c['r']*2, c['r']))
         screen.blit(cloud, (int(c['x']), int(c['y'])))
     pygame.draw.line(screen, BLACK, (0, HEIGHT - GROUND_OFFSET), (WIDTH, HEIGHT - GROUND_OFFSET), 2)
-    # Compute h0 for drawing cannon (fallback to 0)
+    # compute cannon base position
     try:
         h0_draw = float(height_input.text)
     except Exception:
         h0_draw = 0.0
-    # draw cannon base at customized height (pixels)
     cannon_base_x = CANNON_BASE_X
     cannon_base_y = HEIGHT - GROUND_OFFSET - int(h0_draw * SCALE)  
 
@@ -456,12 +538,15 @@ while running:
     speed_input.color = ACTIVE_COLOR if speed_input.active else BLACK
     angle_input.color = ACTIVE_COLOR if angle_input.active else BLACK
 
+    # draw UI controls
     speed_input.draw(screen)
     angle_input.draw(screen)
     # launch_button.draw(screen)
     # reset_button.draw(screen)
     draw_custom_button(screen, launch_button, LAUNCH_BTN_BG, LAUNCH_BTN_TEXT)
     draw_custom_button(screen, reset_button, RESET_BTN_BG, RESET_BTN_TEXT)
+    # close button on main screen (top-right)
+    draw_custom_button(screen, close_button, CLOSE_BTN_BG, CLOSE_BTN_TEXT)
 
     # restore original color state
     speed_input.color = orig_speed_color
@@ -556,6 +641,15 @@ while running:
         )
         screen.blit(hit_text, (int(target_x) - TARGET_RADIUS, target_y - 80))
 
+    # handle fade-in after start
+    if fading and fade_phase == 'in':
+        now = pygame.time.get_ticks()
+        t = (now - fade_start_ms) / (FADE_IN_DURATION * 1000.0)
+        t = max(0.0, min(1.0, t))
+        apply_fade_overlay(screen, int(255 * (1.0 - t)))
+        if t >= 1.0:
+            fading = False
+            fade_phase = None
 
     pygame.display.flip()
 
