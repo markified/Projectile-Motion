@@ -389,7 +389,10 @@ while running:
     if projectile and not landed:
         prev_y = projectile.position[1]
         projectile.update(dt)
-        x_px, y_px = projectile.position
+        # meters -> pixels for plotting
+        x_m, y_m = projectile.position
+        x_px = x_m * SCALE
+        y_px = y_m * SCALE
         # update max height from analytic value for consistency
         if current_trace is not None:
             current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
@@ -499,9 +502,9 @@ while running:
 
     # projectile drawing (screen coords)
     if projectile:
-        x, y = projectile.position
-        screen_x = x + CANNON_BASE_X
-        screen_y = HEIGHT - GROUND_OFFSET - y
+        x_m, y_m = projectile.position
+        screen_x = x_m * SCALE + CANNON_BASE_X
+        screen_y = HEIGHT - GROUND_OFFSET - y_m * SCALE
         pygame.draw.circle(screen, (255, 0, 0), (int(screen_x), int(screen_y)), BALL_RADIUS)
         draw_projectile_shadow(screen, screen_x, HEIGHT - GROUND_OFFSET, BALL_RADIUS)
 

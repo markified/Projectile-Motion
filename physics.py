@@ -17,8 +17,8 @@ class Projectile:
         self.vx = v0 * math.cos(self.angle)
         self.vy0 = v0 * math.sin(self.angle)
 
-        # position stored in pixels (scale: 10 px per meter)
-        self.position = (0, int(self.h0 * 10))
+        # position in meters (decoupled from screen pixels)
+        self.position = (0.0, float(self.h0))
 
     def update(self, dt: float):
         # stop if already landed
@@ -46,8 +46,8 @@ class Projectile:
                 if y_m == 0.0:
                     self.landed = True
 
-        # store pixel position
-        self.position = (x_m * 10, y_m * 10)
+        # store position in meters
+        self.position = (x_m, y_m)
 
     def flight_time(self) -> float:
         # solve vertical motion until y = 0
@@ -66,11 +66,11 @@ class Projectile:
         return t if t > 0 else 0.0
 
     def range(self) -> float:
-        # horizontal distance at landing
+        # horizontal distance at landing (meters)
         return self.vx * self.flight_time()
 
     def max_height(self) -> float:
-        # peak height relative to ground
+        # peak height above ground (meters)
         eps = 1e-12
         if self.vy0 <= eps:
             return self.h0
