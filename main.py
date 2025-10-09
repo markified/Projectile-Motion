@@ -2,6 +2,7 @@ import random
 import pygame
 from physics import Projectile
 from ui import InputBox, Button
+import math  # added for any future math use
 
 # --- Core settings / constants ------------------------------------------------
 FPS = 120
@@ -37,6 +38,11 @@ LAUNCH_BTN_TEXT = (255, 255, 255)
 RESET_BTN_BG = (0, 0, 0)
 RESET_BTN_TEXT = (255, 255, 255)
 
+# Fancy feature colors
+PREDICT_COLOR = (255, 140, 0)
+HUD_BG = (0, 0, 0, 120)
+PARTICLE_BASE = (255, 230, 120)
+
 # CANNONBALL SIZE
 BALL_RADIUS = 10
 TARGET_RADIUS = 25  # moved up to constants section
@@ -52,14 +58,9 @@ def draw_gradient_rect(surf, rect, top_color, bottom_color):
         pygame.draw.line(surf, (r, g, b), (x, y + i), (x + w, y + i))
 
 def draw_sky_and_ground(screen, WIDTH, HEIGHT):
-    # replaced magic numbers with constants
     draw_gradient_rect(screen, (0, 0, WIDTH, HEIGHT - GROUND_OFFSET), SKY_TOP, SKY_BOTTOM)
     pygame.draw.circle(screen, SUN_COLOR, (WIDTH-120, 120), 60)
-    for cx, cy, cr in [(200, 100, 40), (300, 70, 30), (600, 120, 50), (900, 80, 35)]:
-        cloud = pygame.Surface((cr*3, cr*2), pygame.SRCALPHA)
-        pygame.draw.ellipse(cloud, CLOUD_COLOR, (0, cr//2, cr*3, cr))
-        pygame.draw.ellipse(cloud, CLOUD_COLOR, (cr, 0, cr*2, cr))
-        screen.blit(cloud, (cx, cy))
+    # clouds now dynamic (removed static blits here)
     draw_gradient_rect(screen, (0, HEIGHT - GROUND_OFFSET, WIDTH, GROUND_OFFSET), GRASS_TOP, GRASS_BOTTOM)
     for gx in range(0, WIDTH, 18):
         pygame.draw.line(
@@ -160,11 +161,71 @@ reset_button = Button(780, 40, 100, 32, text='Reset')
 
 font = pygame.font.Font(None, 28)
 
-def draw_custom_button(surface, btn, bg_color, text_color): 
-    pygame.draw.rect(surface, bg_color, btn.rect, border_radius=6)
-    pygame.draw.rect(surface, (255, 255, 255), btn.rect, 2, border_radius=6)
+# Added: button drawing helper (was referenced later but undefined)
+def draw_custom_button(surface, btn, bg_color, text_color):
+    hover = btn.rect.collidepoint(pygame.mouse.get_pos())
+    base = pygame.Color(*bg_color)
+    shade = 1.15 if hover else 0.65
+    top = base
+    bottom = pygame.Color(
+        min(255, int(base.r * shade)),
+        min(255, int(base.g * shade)),
+        min(255, int(base.b * shade)),
+    )
+    grad = pygame.Surface(btn.rect.size, pygame.SRCALPHA)
+    for i in range(btn.rect.height):
+        t = i / btn.rect.height
+        r = int(top.r * (1 - t) + bottom.r * t)
+        g = int(top.g * (1 - t) + bottom.g * t)
+        b = int(top.b * (1 - t) + bottom.b * t)
+        pygame.draw.line(grad, (r, g, b), (0, i), (btn.rect.width, i))
+    surface.blit(grad, btn.rect.topleft)
+    pygame.draw.rect(surface, (255, 255, 255), btn.rect, 2, border_radius=8)
     label = font.render(btn.text, True, text_color)
     surface.blit(label, label.get_rect(center=btn.rect.center))
+
+
+clouds = [
+    {
+        'x': random.randint(0, WIDTH),
+        'y': random.randint(40, 180),
+        'r': random.randint(30, 55),
+        'speed': random.uniform(10, 35)
+    } for _ in range(6)
+]
+
+particles = []         
+last_launch_time = None 
+
+def get_cannon_muzzle(base_x, base_y, angle_deg):
+    """Return muzzle (x,y) and direction vector of cannon barrel."""
+    barrel_length = 70
+    dir_vec = pygame.math.Vector2(1, 0).rotate(-angle_deg)
+    muzzle = pygame.math.Vector2(base_x, base_y) + dir_vec * barrel_length
+    return int(muzzle.x), int(muzzle.y), dir_vec
+
+def spawn_particles(mx, my, dir_vec):
+    """Create simple fading particles at muzzle."""
+    for _ in range(25):
+        spread = dir_vec.rotate(random.uniform(-35, 35))
+        speed = random.uniform(90, 240)
+        particles.append({
+            'pos': [mx, my],
+            'vel': [spread.x * speed, spread.y * speed],
+            'life': random.uniform(0.25, 0.6),
+            'max': 0.6
+        })
+
+def update_particles(dt):
+    """Advance and prune particles."""
+    gravity = 300
+    for p in particles:
+        p['life'] -= dt
+        p['vel'][1] += gravity * dt
+        p['pos'][0] += p['vel'][0] * dt
+        p['pos'][1] += p['vel'][1] * dt
+    particles[:] = [p for p in particles if p['life'] > 0]
+
 
 projectile = None
 landed = False
@@ -215,7 +276,11 @@ while running:
                 angle = float(angle_input.text)
                 h0 = float(height_input.text)  
                 g = 9.8
-                projectile = Projectile(v0, angle, g, h0)  
+                projectile = Projectile(v0, angle, g, h0)
+                # spawn muzzle particles
+                mx, my, dvec = get_cannon_muzzle(CANNON_BASE_X, HEIGHT - GROUND_OFFSET - int(h0 * SCALE), angle)
+                spawn_particles(mx, my, dvec)
+                last_launch_time = pygame.time.get_ticks() / 1000.0
                 landed = False
                 total_time = 0
                 total_distance = 0
@@ -287,10 +352,26 @@ while running:
             except ValueError:
                 pass
 
+    # Update moving clouds
+    for c in clouds:
+        c['x'] += c['speed'] * dt
+        if c['x'] - c['r']*3 > WIDTH:
+            c['x'] = -c['r']*3
+            c['y'] = random.randint(40, 180)
+            c['speed'] = random.uniform(10, 35)
+
+    update_particles(dt)
+    # ...existing code before drawing sky...
+
     screen.fill(WHITE)
     draw_sky_and_ground(screen, WIDTH, HEIGHT)
+    # draw dynamic clouds
+    for c in clouds:
+        cloud = pygame.Surface((c['r']*3, c['r']*2), pygame.SRCALPHA)
+        pygame.draw.ellipse(cloud, CLOUD_COLOR, (0, c['r']//2, c['r']*3, c['r']))
+        pygame.draw.ellipse(cloud, CLOUD_COLOR, (c['r'], 0, c['r']*2, c['r']))
+        screen.blit(cloud, (int(c['x']), int(c['y'])))
     pygame.draw.line(screen, BLACK, (0, HEIGHT - GROUND_OFFSET), (WIDTH, HEIGHT - GROUND_OFFSET), 2)
-
     # Compute h0 for drawing cannon (fallback to 0)
     try:
         h0_draw = float(height_input.text)
@@ -298,7 +379,7 @@ while running:
         h0_draw = 0.0
     # draw cannon base at customized height (pixels)
     cannon_base_x = CANNON_BASE_X
-    cannon_base_y = HEIGHT - GROUND_OFFSET - int(h0_draw * SCALE)  # move up by h0 meters * scale
+    cannon_base_y = HEIGHT - GROUND_OFFSET - int(h0_draw * SCALE)  
 
     # base/platform from cannon_base_y down to ground ---
     # platform dimensions
