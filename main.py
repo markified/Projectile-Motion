@@ -440,7 +440,7 @@ while running:
             screen.blit(cloud, (int(c['x']), int(c['y'])))
 
         # title
-        title_text = title_font.render("Projectile Motion Simulator", True, ACTIVE_COLOR)
+        title_text = title_font.render("Projectile Motion Simulator", True, BLACK)
         screen.blit(title_text, title_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40)))
 
         # Start button (same theme using custom drawer)
