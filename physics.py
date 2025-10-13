@@ -49,6 +49,16 @@ class Projectile:
         # store position in meters
         self.position = (x_m, y_m)
 
+    # Instantaneous velocity components (m/s)
+    def velocity(self) -> tuple[float, float]:
+        # vx is constant; vy decreases by g*t
+        return self.vx, (self.vy0 - self.g * self.t)
+
+    # Instantaneous speed magnitude (m/s)
+    def speed(self) -> float:
+        vx, vy = self.velocity()
+        return math.hypot(vx, vy)
+
     def flight_time(self) -> float:
         # time until y = 0 (general h0 handled)
         eps = 1e-12
@@ -66,7 +76,8 @@ class Projectile:
 
     def range(self) -> float:
         # horizontal distance at landing (meters)
-        return self.vx * self.flight_time()
+        t = self.flight_time()
+        return max(0.0, self.vx * t)
 
     def max_height(self) -> float:
         # peak height above ground (meters)

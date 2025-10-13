@@ -167,6 +167,8 @@ angle_input = InputBox(300, 40, 140, 32, text='45')
 height_input = InputBox(500, 40, 140, 32, text='0')
 launch_button = Button(660, 40, 100, 32, text='Launch')
 reset_button = Button(780, 40, 100, 32, text='Reset')
+# NEW: Pause/Play button
+pause_button = Button(900, 40, 100, 32, text='Pause')
 # NEW: close button (top-right)
 close_button = Button(WIDTH - 70, 12, 56, 36, text='X')
 
@@ -180,6 +182,8 @@ on_start_screen = True
 fading = False
 fade_phase = None  # 'out' or 'in'
 fade_start_ms = 0
+# NEW: pause state
+paused = False
 
 # Added: button drawing helper (was referenced later but undefined)
 def draw_custom_button(surface, btn, bg_color, text_color):
@@ -213,6 +217,39 @@ def apply_fade_overlay(surface, alpha: int):
     overlay.fill((0, 0, 0, int(alpha)))
     surface.blit(overlay, (0, 0))
 
+# --- Added: helpers to draw velocity vectors (Vx, Vy, V) ---
+def draw_arrow(surface, start, vec, color, width=3):
+    # Draw a simple arrow from start by vec (in pixels)
+    sx, sy = start
+    ex, ey = sx + vec[0], sy + vec[1]
+    pygame.draw.line(surface, color, (sx, sy), (ex, ey), width)
+    ang = math.atan2(vec[1], vec[0]) if (vec[0] or vec[1]) else 0.0
+    head_len = 10
+    head_ang = math.radians(22)
+    left = (ex - head_len * math.cos(ang - head_ang), ey - head_len * math.sin(ang - head_ang))
+    right = (ex - head_len * math.cos(ang + head_ang), ey - head_len * math.sin(ang + head_ang))
+    pygame.draw.polygon(surface, color, [(ex, ey), left, right])
+
+def draw_velocity_vectors(surface, px, py, vx, vy):
+    # Scale m/s to pixels and invert y for screen coords
+    scale = 3
+    vx_vec = (vx * scale, 0)
+    vy_vec = (0, -vy * scale)
+    v_vec  = (vx * scale, -vy * scale)
+    # Colors (local, avoids changing global palette)
+    vx_col = (0, 120, 255)
+    vy_col = (0, 200, 120)
+    v_col  = (255, 120, 40)
+    # Draw arrows
+    draw_arrow(surface, (px, py), vx_vec, vx_col, 3)
+    draw_arrow(surface, (px, py), vy_vec, vy_col, 3)
+    draw_arrow(surface, (px, py), v_vec,  v_col,  2)
+    # Labels
+    v_mag = math.hypot(vx, vy)
+    surface.blit(font.render(f"Vx={vx:.1f} m/s", True, vx_col), (px + 8, py - 20))
+    surface.blit(font.render(f"Vy={vy:.1f} m/s", True, vy_col), (px - 8 - font.size(f"Vy={vy:.1f} m/s")[0], py - 36))
+    surface.blit(font.render(f"V={v_mag:.1f} m/s", True, v_col), (px + 8, py + 8))
+
 # NEW: formula-accurate metrics based on angle and height
 def compute_launch_metrics(v0: float, angle_deg: float, h0: float, g: float, proj: Projectile):
     """
@@ -225,11 +262,12 @@ def compute_launch_metrics(v0: float, angle_deg: float, h0: float, g: float, pro
     eps = 1e-6
     angle_rad = math.radians(angle_deg)
     s = math.sin(angle_rad)
+    c = math.cos(angle_rad)
 
     # Level ground (h0 ~ 0)
     if abs(h0) < eps:
         T = (2 * v0 * s) / g if g > 0 else 0.0
-        R = (v0 * v0 * math.sin(2 * angle_rad)) / g if g > 0 else 0.0
+        R = v0 * c * T  # numerically stable and equivalent to (v0^2 sin 2θ)/g
         H = (v0 * v0 * s * s) / (2 * g) if g > 0 else 0.0
         return max(0.0, T), max(0.0, R), max(0.0, H)
 
@@ -237,12 +275,12 @@ def compute_launch_metrics(v0: float, angle_deg: float, h0: float, g: float, pro
     if abs(s) < eps:
         T = math.sqrt(2 * h0 / g) if g > 0 else 0.0
         R = v0 * T
-        H = 0.5 * g * (T * T)  # equals h0; formula as requested
+        H = 0.5 * g * (T * T)  # equals h0
         return max(0.0, T), max(0.0, R), max(0.0, H)
 
     # General case (h0 > 0, θ > 0)
     T = proj.flight_time()
-    R = proj.range()
+    R = v0 * c * T
     H = h0 + (v0 * v0 * s * s) / (2 * g) if g > 0 else h0
     return max(0.0, T), max(0.0, R), max(0.0, H)
 
@@ -316,6 +354,10 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        # NEW: toggle pause via Space key
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            paused = not paused
+
         speed_input.handle_event(event)
         angle_input.handle_event(event)
         height_input.handle_event(event)
@@ -323,6 +365,9 @@ while running:
         # NEW: close button handling
         if close_button.handle_event(event):
             running = False
+        # NEW: pause button handling
+        if pause_button.handle_event(event):
+            paused = not paused
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
@@ -419,73 +464,59 @@ while running:
         pygame.display.flip()
         continue
 
+    # Physics update only if not paused
     if projectile and not landed:
         prev_y = projectile.position[1]
-        projectile.update(dt)
-        # meters -> pixels for plotting
-        x_m, y_m = projectile.position
-        x_px = x_m * SCALE
-        y_px = y_m * SCALE
-        # update max height from analytic value for consistency
-        if current_trace is not None:
-            current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
-        # append pixel position to the active trace
-        if current_trace is not None:
-            current_trace['points'].append(
-                (int(x_px + CANNON_BASE_X), int(HEIGHT - GROUND_OFFSET - y_px))
-            )
-        # handle landing: use analytic values to finalize results
-        if projectile.landed:
-            landed = True
-            # --- use formulas accurately ---
-            try:
-                v0_val = float(speed_input.text)
-                angle_val = float(angle_input.text)
-                h0_val = float(height_input.text)
-            except ValueError:
-                v0_val, angle_val, h0_val = 0.0, 0.0, 0.0
-            g_val = 9.8
-            total_time, total_distance, h_display = compute_launch_metrics(v0_val, angle_val, h0_val, g_val, projectile)
-
-            # check hit against target distance (convert screen x to meters)
-            if target_x is not None:
-                target_distance_m = (target_x - CANNON_BASE_X) / SCALE
-                # tolerance includes target radius and ball size (both in meters)
-                tolerance_m = (TARGET_RADIUS + BALL_RADIUS) / SCALE
-                target_hit = abs(total_distance - target_distance_m) <= tolerance_m
-            else:
-                target_hit = False
-
-            # set max height displayed from formulas
-            max_height = h_display
-
-            # keep trace max height in sync with displayed value
+        if not paused:
+            projectile.update(dt)
+            # meters -> pixels for plotting
+            x_m, y_m = projectile.position
+            x_px = x_m * SCALE
+            y_px = y_m * SCALE
+            # update max height and trace while running
             if current_trace is not None:
-                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), h_display)
+                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
+                current_trace['points'].append(
+                    (int(x_px + CANNON_BASE_X), int(HEIGHT - GROUND_OFFSET - y_px))
+                )
+            # handle landing using formulas
+            if projectile.landed:
+                landed = True
+                try:
+                    v0_val = float(speed_input.text)
+                    angle_val = float(angle_input.text)
+                    h0_val = float(height_input.text)
+                except ValueError:
+                    v0_val, angle_val, h0_val = 0.0, 0.0, 0.0
+                g_val = 9.8
+                total_time, total_distance, h_display = compute_launch_metrics(v0_val, angle_val, h0_val, g_val, projectile)
+                if target_x is not None:
+                    target_distance_m = (target_x - CANNON_BASE_X) / SCALE
+                    tolerance_m = (TARGET_RADIUS + BALL_RADIUS) / SCALE
+                    target_hit = abs(total_distance - target_distance_m) <= tolerance_m
+                else:
+                    target_hit = False
+                max_height = h_display
+                if current_trace is not None:
+                    current_trace['max_height'] = max(current_trace.get('max_height', 0.0), h_display)
+                try:
+                    recent_records.insert(0, (v0_val, angle_val, total_time, total_distance, h_display))
+                    if len(recent_records) > MAX_RECORDS:
+                        recent_records.pop()
+                except Exception:
+                    pass
 
-            # recent records (store the formula-based values)
-            try:
-                recent_records.insert(0, (
-                    v0_val,
-                    angle_val,
-                    total_time,
-                    total_distance,
-                    h_display
-                ))
-                if len(recent_records) > MAX_RECORDS:
-                    recent_records.pop()
-            except Exception:
-                pass
+    # Update moving clouds (only when not paused)
+    if not paused:
+        for c in clouds:
+            c['x'] += c['speed'] * dt
+            if c['x'] - c['r']*3 > WIDTH:
+                c['x'] = -c['r']*3
+                c['y'] = random.randint(40, 180)
+                c['speed'] = random.uniform(10, 35)
 
-    # Update moving clouds
-    for c in clouds:
-        c['x'] += c['speed'] * dt
-        if c['x'] - c['r']*3 > WIDTH:
-            c['x'] = -c['r']*3
-            c['y'] = random.randint(40, 180)
-            c['speed'] = random.uniform(10, 35)
+        update_particles(dt)
 
-    update_particles(dt)
     # ...existing code before drawing sky...
 
     screen.fill(WHITE)
@@ -547,6 +578,11 @@ while running:
         pygame.draw.circle(screen, (255, 0, 0), (int(screen_x), int(screen_y)), BALL_RADIUS)
         draw_projectile_shadow(screen, screen_x, HEIGHT - GROUND_OFFSET, BALL_RADIUS)
 
+        # --- Added: draw Vx, Vy, and resultant V after launch ---
+        if not landed:
+            vx = projectile.vx
+            vy = projectile.vy0 - projectile.g * projectile.t
+            draw_velocity_vectors(screen, int(screen_x), int(screen_y), vx, vy)
 
     # draw all stored traces (persistent)
     for trace in all_traces:
@@ -583,12 +619,13 @@ while running:
     # draw UI controls
     speed_input.draw(screen)
     angle_input.draw(screen)
-    # launch_button.draw(screen)
-    # reset_button.draw(screen)
     draw_custom_button(screen, launch_button, LAUNCH_BTN_BG, LAUNCH_BTN_TEXT)
     draw_custom_button(screen, reset_button, RESET_BTN_BG, RESET_BTN_TEXT)
     # close button on main screen (top-right)
     draw_custom_button(screen, close_button, CLOSE_BTN_BG, CLOSE_BTN_TEXT)
+    # NEW: draw Pause/Play button and keep label in sync
+    pause_button.text = 'Play' if paused else 'Pause'
+    draw_custom_button(screen, pause_button, RESET_BTN_BG, RESET_BTN_TEXT)
 
     # restore original color state
     speed_input.color = orig_speed_color
@@ -620,8 +657,8 @@ while running:
     # Show recent record launches 
     records_to_show = recent_records[:MAX_RECORDS]
     if records_to_show:
-        start_x = 950
-        start_y = 90
+        start_x = 750
+        start_y = 130
         record_title = font.render("Recent Launches:", True, BLACK)
         screen.blit(record_title, (start_x, start_y - 40))
 
@@ -637,7 +674,7 @@ while running:
             # details rendered on separate lines, indented
             info_x = start_x + 30
             labels = [
-                f"Vo = {rec[0]:.1f} m/s",
+                f"V = {rec[0]:.1f} m/s",
                 f"θ  = {rec[1]:.1f}°",
                 f"T  = {rec[2]:.2f} s",
                 f"R  = {rec[3]:.2f} m",
@@ -692,6 +729,12 @@ while running:
         if t >= 1.0:
             fading = False
             fade_phase = None
+
+    # NEW: pause overlay and label
+    if paused:
+        apply_fade_overlay(screen, 100)
+        paused_text = title_font.render("PAUSED", True, (255, 255, 255))
+        screen.blit(paused_text, paused_text.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
 
     pygame.display.flip()
 
