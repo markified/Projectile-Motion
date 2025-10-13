@@ -213,6 +213,39 @@ def apply_fade_overlay(surface, alpha: int):
     overlay.fill((0, 0, 0, int(alpha)))
     surface.blit(overlay, (0, 0))
 
+# NEW: formula-accurate metrics based on angle and height
+def compute_launch_metrics(v0: float, angle_deg: float, h0: float, g: float, proj: Projectile):
+    """
+    Returns (T, R, H_display)
+    H_display:
+      - If h0≈0: H = (v0^2 sin^2θ)/(2g)  (above launch)
+      - If θ≈0 and h0>0: H = 1/2 g T^2  (drop distance; equals h0)
+      - Else: H = h0 + (v0^2 sin^2θ)/(2g) (apex above ground)
+    """
+    eps = 1e-6
+    angle_rad = math.radians(angle_deg)
+    s = math.sin(angle_rad)
+
+    # Level ground (h0 ~ 0)
+    if abs(h0) < eps:
+        T = (2 * v0 * s) / g if g > 0 else 0.0
+        R = (v0 * v0 * math.sin(2 * angle_rad)) / g if g > 0 else 0.0
+        H = (v0 * v0 * s * s) / (2 * g) if g > 0 else 0.0
+        return max(0.0, T), max(0.0, R), max(0.0, H)
+
+    # Horizontal from height (θ ~ 0 and h0 > 0)
+    if abs(s) < eps:
+        T = math.sqrt(2 * h0 / g) if g > 0 else 0.0
+        R = v0 * T
+        H = 0.5 * g * (T * T)  # equals h0; formula as requested
+        return max(0.0, T), max(0.0, R), max(0.0, H)
+
+    # General case (h0 > 0, θ > 0)
+    T = proj.flight_time()
+    R = proj.range()
+    H = h0 + (v0 * v0 * s * s) / (2 * g) if g > 0 else h0
+    return max(0.0, T), max(0.0, R), max(0.0, H)
+
 clouds = [
     {
         'x': random.randint(0, WIDTH),
@@ -404,8 +437,16 @@ while running:
         # handle landing: use analytic values to finalize results
         if projectile.landed:
             landed = True
-            total_time = projectile.flight_time()
-            total_distance = projectile.range()
+            # --- use formulas accurately ---
+            try:
+                v0_val = float(speed_input.text)
+                angle_val = float(angle_input.text)
+                h0_val = float(height_input.text)
+            except ValueError:
+                v0_val, angle_val, h0_val = 0.0, 0.0, 0.0
+            g_val = 9.8
+            total_time, total_distance, h_display = compute_launch_metrics(v0_val, angle_val, h0_val, g_val, projectile)
+
             # check hit against target distance (convert screen x to meters)
             if target_x is not None:
                 target_distance_m = (target_x - CANNON_BASE_X) / SCALE
@@ -414,28 +455,26 @@ while running:
                 target_hit = abs(total_distance - target_distance_m) <= tolerance_m
             else:
                 target_hit = False
-            
+
+            # set max height displayed from formulas
+            max_height = h_display
+
+            # keep trace max height in sync with displayed value
             if current_trace is not None:
-                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), projectile.max_height())
+                current_trace['max_height'] = max(current_trace.get('max_height', 0.0), h_display)
 
-            
-            trace_h = current_trace['max_height'] if current_trace is not None else projectile.max_height()
-            max_height = trace_h  
-
-            
+            # recent records (store the formula-based values)
             try:
-                v0_val = float(speed_input.text)
-                angle_val = float(angle_input.text)
                 recent_records.insert(0, (
                     v0_val,
                     angle_val,
                     total_time,
                     total_distance,
-                    trace_h
+                    h_display
                 ))
                 if len(recent_records) > MAX_RECORDS:
                     recent_records.pop()
-            except ValueError:
+            except Exception:
                 pass
 
     # Update moving clouds
